@@ -201,9 +201,22 @@ def create_vhs_wrappers():
         import traceback
         traceback.print_exc()
 
-# Try to create wrappers now
-create_vhs_wrappers()
+# Don't create wrappers immediately - VHS might not be loaded yet
+# Instead, defer until ComfyUI startup is complete
+import threading
+import time
 
-# If no wrappers were created, log why
-if not NODE_CLASS_MAPPINGS:
-    logger.info("No VHS GPU wrapper nodes registered - VideoHelperSuite may not be loaded yet")
+def delayed_wrapper_creation():
+    """Create VHS wrappers after a delay to ensure VHS has loaded"""
+    time.sleep(2)  # Wait 2 seconds for other nodes to load
+    logger.info("Attempting delayed VHS wrapper creation...")
+    create_vhs_wrappers()
+    
+    if not NODE_CLASS_MAPPINGS:
+        logger.info("No VHS GPU wrapper nodes registered - VideoHelperSuite may not be loaded")
+
+# Start delayed creation in background thread
+wrapper_thread = threading.Thread(target=delayed_wrapper_creation, daemon=True)
+wrapper_thread.start()
+
+logger.info("VHS GPU wrapper loading deferred - will attempt after startup delay")
