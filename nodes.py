@@ -1,6 +1,8 @@
 import comfy.model_management as model_management
 import torch
 import logging
+import os
+import folder_paths
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -90,6 +92,16 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
         devices = get_device_list()
         default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
         
+        # Get video files from input directory like original VHS
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        if os.path.exists(input_dir):
+            for f in os.listdir(input_dir):
+                if os.path.isfile(os.path.join(input_dir, f)):
+                    file_parts = f.split('.')
+                    if len(file_parts) > 1 and (file_parts[-1] in ['mp4', 'avi', 'mov', 'webm', 'mkv', 'm4v']):
+                        files.append(f)
+        
         return {
             "required": {
                 "force_rate": ("FLOAT", {"default": 0, "min": 0, "max": 60, "step": 1}),
@@ -98,7 +110,7 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
                 "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999}),
-                "video": ("STRING", {"default": "", "video_upload": True}),
+                "video": (sorted(files), {"video_upload": True}),
             },
             "optional": {
                 "meta_batch": ("VHS_BatchManager",),
