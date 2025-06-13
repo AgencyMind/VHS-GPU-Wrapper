@@ -1,0 +1,2 @@
+# No additional dependencies required beyond ComfyUI and VideoHelperSuite
+# This extension only wraps existing VideoHelperSuite functionality
