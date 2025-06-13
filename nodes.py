@@ -118,7 +118,9 @@ def create_vhs_wrappers():
         # If not found in specific modules, search all loaded modules
         if VHS_NODE_MAPPINGS is None:
             logger.info("VHS not found in expected modules, searching all loaded modules...")
-            for module_name, module in sys.modules.items():
+            # Create a copy of sys.modules to avoid "dictionary changed size during iteration"
+            modules_copy = dict(sys.modules)
+            for module_name, module in modules_copy.items():
                 if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
                     # VHS nodes start with "VHS_"
                     if isinstance(module.NODE_CLASS_MAPPINGS, dict):
