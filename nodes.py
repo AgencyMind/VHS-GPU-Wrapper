@@ -92,13 +92,13 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
         
         return {
             "required": {
-                "video": ([""], {"video_upload": True}),
                 "force_rate": ("FLOAT", {"default": 0, "min": 0, "max": 60, "step": 1}),
                 "custom_width": ("INT", {"default": 0, "min": 0, "max": 8192}),
                 "custom_height": ("INT", {"default": 0, "min": 0, "max": 8192}),
                 "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999}),
+                "video": ("STRING", {"default": ""}),
             },
             "optional": {
                 "meta_batch": ("VHS_BatchManager",),
