@@ -98,7 +98,7 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
                 "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999}),
                 "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999}),
-                "video": ("STRING", {"default": ""}),
+                "video": ("STRING", {"default": "", "video_upload": True}),
             },
             "optional": {
                 "meta_batch": ("VHS_BatchManager",),
