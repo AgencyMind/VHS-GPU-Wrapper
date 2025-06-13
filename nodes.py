@@ -100,22 +100,66 @@ def create_vhs_wrappers():
         
         # Check all loaded modules for VHS
         for module_name, module in sys.modules.items():
-            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                # Check if this module has VHS nodes
-                if any('VHS_' in node_name for node_name in module.NODE_CLASS_MAPPINGS.keys()):
-                    VHS_NODE_MAPPINGS = module.NODE_CLASS_MAPPINGS
-                    logger.info(f"Found VHS nodes in module: {module_name}")
-                    break
+            if hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                try:
+                    # Handle different types of NODE_CLASS_MAPPINGS
+                    mappings = module.NODE_CLASS_MAPPINGS
+                    if mappings is None:
+                        continue
+                        
+                    # Try to get keys - handle both dict and _OpNamespace
+                    if hasattr(mappings, 'keys'):
+                        node_keys = list(mappings.keys())
+                    elif hasattr(mappings, '_name_to_node'):
+                        node_keys = list(mappings._name_to_node.keys())
+                    else:
+                        # Try to iterate directly
+                        node_keys = list(mappings)
+                    
+                    # Check if this module has VHS nodes
+                    if any('VHS_' in node_name for node_name in node_keys):
+                        VHS_NODE_MAPPINGS = mappings
+                        logger.info(f"Found VHS nodes in module: {module_name}")
+                        logger.info(f"VHS node keys: {[k for k in node_keys if 'VHS_' in k]}")
+                        break
+                        
+                except Exception as e:
+                    logger.debug(f"Error checking module {module_name}: {e}")
+                    continue
         
         if VHS_NODE_MAPPINGS is None:
             logger.warning("VideoHelperSuite nodes not found in loaded modules")
             return
             
-        logger.info(f"Available VHS nodes: {[k for k in VHS_NODE_MAPPINGS.keys() if 'VHS_' in k]}")
+        # Get all VHS nodes safely
+        try:
+            if hasattr(VHS_NODE_MAPPINGS, 'keys'):
+                all_vhs_nodes = [k for k in VHS_NODE_MAPPINGS.keys() if 'VHS_' in k]
+            elif hasattr(VHS_NODE_MAPPINGS, '_name_to_node'):
+                all_vhs_nodes = [k for k in VHS_NODE_MAPPINGS._name_to_node.keys() if 'VHS_' in k]
+            else:
+                all_vhs_nodes = [k for k in VHS_NODE_MAPPINGS if 'VHS_' in k]
+            
+            logger.info(f"Available VHS nodes: {all_vhs_nodes}")
+        except Exception as e:
+            logger.error(f"Error listing VHS nodes: {e}")
+            return
         
         # Create wrappers for found VHS nodes
-        if "VHS_LoadVideo" in VHS_NODE_MAPPINGS:
-            VHS_LoadVideo = VHS_NODE_MAPPINGS["VHS_LoadVideo"]
+        def get_vhs_node(node_name):
+            """Get VHS node class handling _OpNamespace"""
+            try:
+                return VHS_NODE_MAPPINGS[node_name]
+            except:
+                if hasattr(VHS_NODE_MAPPINGS, '_name_to_node'):
+                    return VHS_NODE_MAPPINGS._name_to_node.get(node_name)
+                return None
+        
+        if "VHS_LoadVideo" in all_vhs_nodes:
+            VHS_LoadVideo = get_vhs_node("VHS_LoadVideo")
+            if VHS_LoadVideo is None:
+                logger.error("Could not access VHS_LoadVideo")
+                return
             
             class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
                 def __init__(self):
@@ -143,34 +187,36 @@ def create_vhs_wrappers():
             NODE_DISPLAY_NAME_MAPPINGS["VHS_LoadVideoWrapper"] = "Load Video (GPU Wrapper)"
             logger.info("Created VHS_LoadVideoWrapper")
         
-        if "VHS_VideoCombine" in VHS_NODE_MAPPINGS:
-            VHS_VideoCombine = VHS_NODE_MAPPINGS["VHS_VideoCombine"]
-            
-            class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
-                def __init__(self):
-                    super().__init__(VHS_VideoCombine)
-                
-                @classmethod
-                def INPUT_TYPES(cls):
-                    base_inputs = VHS_VideoCombine.INPUT_TYPES()
+        if "VHS_VideoCombine" in all_vhs_nodes:
+            VHS_VideoCombine = get_vhs_node("VHS_VideoCombine")
+            if VHS_VideoCombine is None:
+                logger.error("Could not access VHS_VideoCombine")
+            else:
+                class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
+                    def __init__(self):
+                        super().__init__(VHS_VideoCombine)
                     
-                    devices = get_device_list()
-                    default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                    @classmethod
+                    def INPUT_TYPES(cls):
+                        base_inputs = VHS_VideoCombine.INPUT_TYPES()
+                        
+                        devices = get_device_list()
+                        default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                        
+                        if "optional" not in base_inputs:
+                            base_inputs["optional"] = {}
+                        
+                        base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                        return base_inputs
+                        
+                    RETURN_TYPES = VHS_VideoCombine.RETURN_TYPES
+                    RETURN_NAMES = getattr(VHS_VideoCombine, 'RETURN_NAMES', ("Filenames",))
+                    FUNCTION = "execute"
+                    CATEGORY = "video/gpu_wrapper"
                     
-                    if "optional" not in base_inputs:
-                        base_inputs["optional"] = {}
-                    
-                    base_inputs["optional"]["device"] = (devices, {"default": default_device})
-                    return base_inputs
-                    
-                RETURN_TYPES = VHS_VideoCombine.RETURN_TYPES
-                RETURN_NAMES = getattr(VHS_VideoCombine, 'RETURN_NAMES', ("Filenames",))
-                FUNCTION = "execute"
-                CATEGORY = "video/gpu_wrapper"
-                
-            NODE_CLASS_MAPPINGS["VHS_VideoCombineWrapper"] = VHS_VideoCombineWrapper
-            NODE_DISPLAY_NAME_MAPPINGS["VHS_VideoCombineWrapper"] = "Video Combine (GPU Wrapper)"
-            logger.info("Created VHS_VideoCombineWrapper")
+                NODE_CLASS_MAPPINGS["VHS_VideoCombineWrapper"] = VHS_VideoCombineWrapper
+                NODE_DISPLAY_NAME_MAPPINGS["VHS_VideoCombineWrapper"] = "Video Combine (GPU Wrapper)"
+                logger.info("Created VHS_VideoCombineWrapper")
             
         logger.info(f"Successfully registered {len(NODE_CLASS_MAPPINGS)} VHS GPU wrapper nodes")
         
