@@ -80,92 +80,177 @@ class VHSMultiGPUWrapper:
 VHS_LoadVideoWrapper = None
 VHS_VideoCombineWrapper = None
 
-# VHS_LoadVideo Wrapper - following the same pattern as preprocessor wrappers
-try:
-    # Try to import VideoHelperSuite at module level, just like the working preprocessor wrappers
-    import VideoHelperSuite
-    VHS_NODE_MAPPINGS = VideoHelperSuite.NODE_CLASS_MAPPINGS
-    VHS_LoadVideo = VHS_NODE_MAPPINGS["VHS_LoadVideo"]
+# Hard-code VHS INPUT_TYPES based on verified source code to avoid import issues
+class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
+    def __init__(self):
+        pass  # Don't call super().__init__ until runtime
     
-    class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
-        vhs_node_class = VHS_LoadVideo  # Set as class attribute like preprocessor wrappers
+    @classmethod
+    def INPUT_TYPES(cls):
+        devices = get_device_list()
+        default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
         
-        def __init__(self):
-            super().__init__(VHS_LoadVideo)
+        return {
+            "required": {
+                "video": ([""], {"video_upload": True}),
+                "force_rate": ("FLOAT", {"default": 0, "min": 0, "max": 60, "step": 1}),
+                "custom_width": ("INT", {"default": 0, "min": 0, "max": 8192}),
+                "custom_height": ("INT", {"default": 0, "min": 0, "max": 8192}),
+                "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999}),
+                "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999}),
+                "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999}),
+            },
+            "optional": {
+                "meta_batch": ("VHS_BatchManager",),
+                "vae": ("VAE",),
+                "device": (devices, {"default": default_device}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID"
+            }
+        }
         
-        @classmethod
-        def INPUT_TYPES(cls):
-            # Use the same pattern as working preprocessor wrappers
-            base_inputs = cls.vhs_node_class.INPUT_TYPES()
-            
-            # Add device parameter
-            devices = get_device_list()
-            default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
-            
-            if "optional" not in base_inputs:
-                base_inputs["optional"] = {}
-            
-            base_inputs["optional"]["device"] = (devices, {"default": default_device})
-            return base_inputs
-            
-        RETURN_TYPES = VHS_LoadVideo.RETURN_TYPES
-        RETURN_NAMES = getattr(VHS_LoadVideo, 'RETURN_NAMES', ("IMAGE", "frame_count", "audio", "video_info"))
-        FUNCTION = "execute"
-        CATEGORY = "video/gpu_wrapper"
-        
-    logger.info("VHS_LoadVideoWrapper created successfully")
+    RETURN_TYPES = ("IMAGE", "INT", "AUDIO", "VHS_VIDEOINFO")
+    RETURN_NAMES = ("IMAGE", "frame_count", "audio", "video_info")
+    FUNCTION = "execute"
+    CATEGORY = "video/gpu_wrapper"
     
-except (ImportError, KeyError) as e:
-    logger.warning(f"VHS_LoadVideo not available: {e}")
-    VHS_LoadVideoWrapper = None
-
-# VHS_VideoCombine Wrapper 
-try:
-    if 'VHS_NODE_MAPPINGS' in locals() and VHS_NODE_MAPPINGS and "VHS_VideoCombine" in VHS_NODE_MAPPINGS:
-        VHS_VideoCombine = VHS_NODE_MAPPINGS["VHS_VideoCombine"]
+    def execute(self, device="cuda:0", **kwargs):
+        # Find VHS at runtime
+        import sys
+        modules_copy = dict(sys.modules)
+        VHS_LoadVideo = None
         
-        class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
-            vhs_node_class = VHS_VideoCombine
-            
-            def __init__(self):
-                super().__init__(VHS_VideoCombine)
-            
-            @classmethod
-            def INPUT_TYPES(cls):
-                base_inputs = cls.vhs_node_class.INPUT_TYPES()
-                
-                devices = get_device_list()
-                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
-                
-                if "optional" not in base_inputs:
-                    base_inputs["optional"] = {}
-                
-                base_inputs["optional"]["device"] = (devices, {"default": default_device})
-                return base_inputs
-                
-            RETURN_TYPES = VHS_VideoCombine.RETURN_TYPES
-            RETURN_NAMES = getattr(VHS_VideoCombine, 'RETURN_NAMES', ("Filenames",))
-            FUNCTION = "execute"
-            CATEGORY = "video/gpu_wrapper"
-            
-        logger.info("VHS_VideoCombineWrapper created successfully")
-    else:
-        VHS_VideoCombineWrapper = None
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                        VHS_LoadVideo = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                        break
         
-except Exception as e:
-    logger.error(f"Error creating VHS_VideoCombineWrapper: {e}")
-    VHS_VideoCombineWrapper = None
+        if VHS_LoadVideo is None:
+            raise RuntimeError("VHS_LoadVideo not found - ensure VideoHelperSuite is installed")
+        
+        self.vhs_node_class = VHS_LoadVideo
+        target_device = torch.device(device)
+        
+        moved_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor):
+                moved_kwargs[key] = value.to(target_device)
+            else:
+                moved_kwargs[key] = value
+        
+        original_get_device = model_management.get_torch_device
+        
+        try:
+            model_management.get_torch_device = lambda: target_device
+            vhs_node = VHS_LoadVideo()
+            function_name = getattr(VHS_LoadVideo, 'FUNCTION', 'load_video')
+            result = getattr(vhs_node, function_name)(**moved_kwargs)
+            
+            if isinstance(result, (tuple, list)):
+                moved_result = []
+                for item in result:
+                    if isinstance(item, torch.Tensor):
+                        moved_result.append(item.to(target_device))
+                    else:
+                        moved_result.append(item)
+                result = tuple(moved_result) if isinstance(result, tuple) else moved_result
+            elif isinstance(result, torch.Tensor):
+                result = result.to(target_device)
+            
+            return result
+        finally:
+            model_management.get_torch_device = original_get_device
 
-# Register nodes - only register if successfully created
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+logger.info("VHS_LoadVideoWrapper created successfully")
 
-if VHS_LoadVideoWrapper:
-    NODE_CLASS_MAPPINGS["VHS_LoadVideoWrapper"] = VHS_LoadVideoWrapper
-    NODE_DISPLAY_NAME_MAPPINGS["VHS_LoadVideoWrapper"] = "Load Video (GPU Wrapper)"
+# Hard-code VHS_VideoCombine INPUT_TYPES based on verified source code
+class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
+    def __init__(self):
+        pass
+    
+    @classmethod 
+    def INPUT_TYPES(cls):
+        devices = get_device_list()
+        default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+        
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "frame_rate": ("FLOAT", {"default": 8, "min": 1, "step": 1}),
+                "loop_count": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
+                "filename_prefix": ("STRING", {"default": "AnimateDiff"}),
+                "format": (["image/gif", "image/webp", "video/mp4", "video/avi"], {}),
+                "pingpong": ("BOOLEAN", {"default": False}),
+                "save_output": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "audio": ("AUDIO",),
+                "meta_batch": ("VHS_BatchManager",),
+                "vae": ("VAE",),
+                "device": (devices, {"default": default_device}),
+            },
+            "hidden": {
+                "prompt": "PROMPT",
+                "extra_pnginfo": "EXTRA_PNGINFO",
+                "unique_id": "UNIQUE_ID"
+            },
+        }
+        
+    RETURN_TYPES = ("VHS_FILENAMES",)
+    RETURN_NAMES = ("Filenames",)
+    FUNCTION = "execute"
+    CATEGORY = "video/gpu_wrapper"
+    
+    def execute(self, device="cuda:0", **kwargs):
+        import sys
+        modules_copy = dict(sys.modules)
+        VHS_VideoCombine = None
+        
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_VideoCombine" in module.NODE_CLASS_MAPPINGS:
+                        VHS_VideoCombine = module.NODE_CLASS_MAPPINGS["VHS_VideoCombine"]
+                        break
+        
+        if VHS_VideoCombine is None:
+            raise RuntimeError("VHS_VideoCombine not found - ensure VideoHelperSuite is installed")
+        
+        self.vhs_node_class = VHS_VideoCombine
+        target_device = torch.device(device)
+        
+        moved_kwargs = {}
+        for key, value in kwargs.items():
+            if isinstance(value, torch.Tensor):
+                moved_kwargs[key] = value.to(target_device)
+            else:
+                moved_kwargs[key] = value
+        
+        original_get_device = model_management.get_torch_device
+        
+        try:
+            model_management.get_torch_device = lambda: target_device
+            vhs_node = VHS_VideoCombine()
+            function_name = getattr(VHS_VideoCombine, 'FUNCTION', 'combine')
+            result = getattr(vhs_node, function_name)(**moved_kwargs)
+            return result
+        finally:
+            model_management.get_torch_device = original_get_device
 
-if VHS_VideoCombineWrapper:
-    NODE_CLASS_MAPPINGS["VHS_VideoCombineWrapper"] = VHS_VideoCombineWrapper
-    NODE_DISPLAY_NAME_MAPPINGS["VHS_VideoCombineWrapper"] = "Video Combine (GPU Wrapper)"
+logger.info("VHS_VideoCombineWrapper created successfully")
+
+# Register nodes directly since the classes are defined above
+NODE_CLASS_MAPPINGS = {
+    "VHS_LoadVideoWrapper": VHS_LoadVideoWrapper,
+    "VHS_VideoCombineWrapper": VHS_VideoCombineWrapper
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "VHS_LoadVideoWrapper": "Load Video (GPU Wrapper)",
+    "VHS_VideoCombineWrapper": "Video Combine (GPU Wrapper)"
+}
 
 logger.info(f"Registered {len(NODE_CLASS_MAPPINGS)} VHS GPU wrapper nodes: {list(NODE_CLASS_MAPPINGS.keys())}")
