@@ -89,6 +89,34 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
     
     @classmethod
     def INPUT_TYPES(cls):
+        # Try to get actual VHS_LoadVideo INPUT_TYPES
+        import sys
+        modules_copy = dict(sys.modules)
+        VHS_LoadVideo = None
+        
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                        VHS_LoadVideo = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                        break
+        
+        if VHS_LoadVideo and hasattr(VHS_LoadVideo, 'INPUT_TYPES'):
+            try:
+                base_inputs = VHS_LoadVideo.INPUT_TYPES()
+                # Add device parameter
+                devices = get_device_list()
+                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                
+                if "optional" not in base_inputs:
+                    base_inputs["optional"] = {}
+                
+                base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                return base_inputs
+            except:
+                pass
+        
+        # Fallback if VHS not available yet
         devices = get_device_list()
         default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
         
@@ -165,6 +193,34 @@ class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
     
     @classmethod
     def INPUT_TYPES(cls):
+        # Try to get actual VHS_VideoCombine INPUT_TYPES
+        import sys
+        modules_copy = dict(sys.modules)
+        VHS_VideoCombine = None
+        
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_VideoCombine" in module.NODE_CLASS_MAPPINGS:
+                        VHS_VideoCombine = module.NODE_CLASS_MAPPINGS["VHS_VideoCombine"]
+                        break
+        
+        if VHS_VideoCombine and hasattr(VHS_VideoCombine, 'INPUT_TYPES'):
+            try:
+                base_inputs = VHS_VideoCombine.INPUT_TYPES()
+                # Add device parameter
+                devices = get_device_list()
+                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                
+                if "optional" not in base_inputs:
+                    base_inputs["optional"] = {}
+                
+                base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                return base_inputs
+            except:
+                pass
+        
+        # Fallback if VHS not available yet
         devices = get_device_list()
         default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
         
