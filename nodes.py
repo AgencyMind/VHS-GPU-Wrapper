@@ -20,31 +20,6 @@ class VHSMultiGPUWrapper:
     
     def __init__(self, vhs_node_class):
         self.vhs_node_class = vhs_node_class
-        
-    @classmethod
-    def INPUT_TYPES(cls):
-        # Get base INPUT_TYPES from wrapped VHS node
-        if hasattr(cls, 'vhs_node_class'):
-            base_inputs = cls.vhs_node_class.INPUT_TYPES()
-        else:
-            base_inputs = {"required": {}}
-        
-        # Add device parameter
-        devices = get_device_list()
-        default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
-        
-        # Ensure optional section exists
-        if "optional" not in base_inputs:
-            base_inputs["optional"] = {}
-        
-        base_inputs["optional"]["device"] = (devices, {"default": default_device})
-        
-        return base_inputs
-    
-    RETURN_TYPES = ("IMAGE", "INT", "AUDIO", "VHS_VIDEOINFO")  # VHS_LoadVideo outputs
-    RETURN_NAMES = ("IMAGE", "frame_count", "audio", "video_info")
-    FUNCTION = "execute"
-    CATEGORY = "video/gpu_wrapper"
     
     def execute(self, device="cuda:0", **kwargs):
         """
@@ -103,87 +78,107 @@ class VHSMultiGPUWrapper:
 
 # Import and create VHS wrapper with error handling
 
-# VHS_LoadVideo Wrapper
+# Initialize wrapper classes to None
+VHS_LoadVideoWrapper = None
+VHS_VideoCombineWrapper = None
+VHS_LoadVideoUploadWrapper = None
+
 try:
-    from VideoHelperSuite import NODE_CLASS_MAPPINGS as VHS_NODE_MAPPINGS
-    VHS_LoadVideo = VHS_NODE_MAPPINGS["VHS_LoadVideo"]
+    # Import VideoHelperSuite nodes
+    import VideoHelperSuite
+    VHS_NODE_MAPPINGS = VideoHelperSuite.NODE_CLASS_MAPPINGS
+    logger.info(f"Found VHS nodes: {list(VHS_NODE_MAPPINGS.keys())}")
     
-    class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
-        vhs_node_class = VHS_LoadVideo
+    # VHS_LoadVideo Wrapper
+    if "VHS_LoadVideo" in VHS_NODE_MAPPINGS:
+        VHS_LoadVideo = VHS_NODE_MAPPINGS["VHS_LoadVideo"]
         
-        def __init__(self):
-            super().__init__(VHS_LoadVideo)
-        
-        @classmethod
-        def INPUT_TYPES(cls):
-            return super().INPUT_TYPES()
+        class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
+            def __init__(self):
+                super().__init__(VHS_LoadVideo)
             
-        RETURN_TYPES = VHS_LoadVideo.RETURN_TYPES
-        RETURN_NAMES = getattr(VHS_LoadVideo, 'RETURN_NAMES', ("IMAGE", "frame_count", "audio", "video_info"))
-        CATEGORY = "video/gpu_wrapper"
-        
-    logger.info("VHS_LoadVideoWrapper loaded successfully")
-    
-except (ImportError, KeyError) as e:
-    logger.warning(f"VHS_LoadVideo not available: {e}")
-    VHS_LoadVideoWrapper = None
-
-
-# VHS_VideoCombine Wrapper
-try:
-    if 'VHS_NODE_MAPPINGS' not in locals():
-        from VideoHelperSuite import NODE_CLASS_MAPPINGS as VHS_NODE_MAPPINGS
-    VHS_VideoCombine = VHS_NODE_MAPPINGS["VHS_VideoCombine"]
-    
-    class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
-        vhs_node_class = VHS_VideoCombine
-        
-        def __init__(self):
-            super().__init__(VHS_VideoCombine)
-        
-        @classmethod
-        def INPUT_TYPES(cls):
-            return super().INPUT_TYPES()
+            @classmethod
+            def INPUT_TYPES(cls):
+                base_inputs = VHS_LoadVideo.INPUT_TYPES()
+                
+                devices = get_device_list()
+                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                
+                if "optional" not in base_inputs:
+                    base_inputs["optional"] = {}
+                
+                base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                return base_inputs
+                
+            RETURN_TYPES = VHS_LoadVideo.RETURN_TYPES
+            RETURN_NAMES = getattr(VHS_LoadVideo, 'RETURN_NAMES', ("IMAGE", "frame_count", "audio", "video_info"))
+            FUNCTION = "execute"
+            CATEGORY = "video/gpu_wrapper"
             
-        RETURN_TYPES = VHS_VideoCombine.RETURN_TYPES
-        RETURN_NAMES = getattr(VHS_VideoCombine, 'RETURN_NAMES', ("Filenames",))
-        CATEGORY = "video/gpu_wrapper"
+        logger.info("VHS_LoadVideoWrapper created successfully")
+    
+    # VHS_VideoCombine Wrapper
+    if "VHS_VideoCombine" in VHS_NODE_MAPPINGS:
+        VHS_VideoCombine = VHS_NODE_MAPPINGS["VHS_VideoCombine"]
         
-    logger.info("VHS_VideoCombineWrapper loaded successfully")
+        class VHS_VideoCombineWrapper(VHSMultiGPUWrapper):
+            def __init__(self):
+                super().__init__(VHS_VideoCombine)
+            
+            @classmethod
+            def INPUT_TYPES(cls):
+                base_inputs = VHS_VideoCombine.INPUT_TYPES()
+                
+                devices = get_device_list()
+                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                
+                if "optional" not in base_inputs:
+                    base_inputs["optional"] = {}
+                
+                base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                return base_inputs
+                
+            RETURN_TYPES = VHS_VideoCombine.RETURN_TYPES
+            RETURN_NAMES = getattr(VHS_VideoCombine, 'RETURN_NAMES', ("Filenames",))
+            FUNCTION = "execute"
+            CATEGORY = "video/gpu_wrapper"
+            
+        logger.info("VHS_VideoCombineWrapper created successfully")
     
-except (ImportError, KeyError) as e:
-    logger.warning(f"VHS_VideoCombine not available: {e}")
-    VHS_VideoCombineWrapper = None
-
-
-# VHS_LoadVideoUpload Wrapper (if it exists)
-try:
-    if 'VHS_NODE_MAPPINGS' not in locals():
-        from VideoHelperSuite import NODE_CLASS_MAPPINGS as VHS_NODE_MAPPINGS
-    VHS_LoadVideoUpload = VHS_NODE_MAPPINGS.get("VHS_LoadVideoUpload")
-    
-    if VHS_LoadVideoUpload:
+    # VHS_LoadVideoUpload Wrapper (if it exists)
+    if "VHS_LoadVideoUpload" in VHS_NODE_MAPPINGS:
+        VHS_LoadVideoUpload = VHS_NODE_MAPPINGS["VHS_LoadVideoUpload"]
+        
         class VHS_LoadVideoUploadWrapper(VHSMultiGPUWrapper):
-            vhs_node_class = VHS_LoadVideoUpload
-            
             def __init__(self):
                 super().__init__(VHS_LoadVideoUpload)
             
             @classmethod
             def INPUT_TYPES(cls):
-                return super().INPUT_TYPES()
+                base_inputs = VHS_LoadVideoUpload.INPUT_TYPES()
+                
+                devices = get_device_list()
+                default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+                
+                if "optional" not in base_inputs:
+                    base_inputs["optional"] = {}
+                
+                base_inputs["optional"]["device"] = (devices, {"default": default_device})
+                return base_inputs
                 
             RETURN_TYPES = VHS_LoadVideoUpload.RETURN_TYPES
             RETURN_NAMES = getattr(VHS_LoadVideoUpload, 'RETURN_NAMES', ("IMAGE", "frame_count", "audio", "video_info"))
+            FUNCTION = "execute"
             CATEGORY = "video/gpu_wrapper"
             
-        logger.info("VHS_LoadVideoUploadWrapper loaded successfully")
-    else:
-        VHS_LoadVideoUploadWrapper = None
+        logger.info("VHS_LoadVideoUploadWrapper created successfully")
         
 except (ImportError, KeyError) as e:
-    logger.warning(f"VHS_LoadVideoUpload not available: {e}")
-    VHS_LoadVideoUploadWrapper = None
+    logger.warning(f"VideoHelperSuite not available: {e}")
+except Exception as e:
+    logger.error(f"Error creating VHS wrappers: {e}")
+    import traceback
+    traceback.print_exc()
 
 
 # Registration dictionaries
