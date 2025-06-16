@@ -4,6 +4,19 @@ import logging
 import os
 import folder_paths
 
+# Define floatOrInt like VHS does
+class MultiInput(str):
+    def __new__(cls, string, allowed_types="*"):
+        res = super().__new__(cls, string)
+        res.allowed_types=allowed_types
+        return res
+    def __ne__(self, other):
+        if self.allowed_types == "*" or other == "*":
+            return False
+        return other not in self.allowed_types
+
+floatOrInt = MultiInput("FLOAT", ["FLOAT", "INT"])
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -106,13 +119,13 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
         return {
             "required": {
                 "video": (sorted(files), {"video_upload": True}),
-                "force_rate": ("INT,FLOAT", {"default": 0, "min": 0, "max": 60, "step": 1, "disable": 0}),
+                "force_rate": (floatOrInt, {"default": 0, "min": 0, "max": 60, "step": 1, "disable": 0}),
                 "custom_width": ("INT", {"default": 0, "min": 0, "max": 8192, 'disable': 0}),
                 "custom_height": ("INT", {"default": 0, "min": 0, "max": 8192, 'disable': 0}),
                 "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999, "step": 1, "disable": 0}),
                 "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999, "step": 1}),
                 "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999, "step": 1}),
-                "format": (["None", "AnimateDiff", "Mochi", "LTXV", "Hunyuan", "Cosmos", "Wan"],),
+                "format": (["None", "AnimateDiff", "Mochi", "LTXV", "Hunyuan", "Cosmos", "Wan"], {"default": "AnimateDiff"}),
                 "device": (devices, {"default": default_device}),
             },
             "optional": {
@@ -146,11 +159,7 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
             if self.vhs_node_class is None:
                 raise RuntimeError("VHS_LoadVideo not found - ensure VideoHelperSuite is installed")
         
-        # Use base class execute with selective tensor movement for video preview
-        return self._execute_with_selective_output_movement(device, **kwargs)
-    
-    def _execute_with_selective_output_movement(self, device="cuda:0", **kwargs):
-        """Execute with selective output tensor movement to preserve video preview"""
+        # Use preprocessor wrapper pattern - move inputs, override device, return outputs unchanged
         target_device = torch.device(device)
         
         # Move input tensors to target device
@@ -175,24 +184,6 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
             function_name = getattr(self.vhs_node_class, 'FUNCTION', 'load_video')
             result = getattr(vhs_node, function_name)(**moved_kwargs)
             
-            # Be more selective about output tensor movement to preserve video preview
-            if isinstance(result, (tuple, list)):
-                moved_result = []
-                for i, item in enumerate(result):
-                    if isinstance(item, torch.Tensor):
-                        # Only move image tensors (first output), leave other data alone for preview
-                        if i == 0:  # IMAGE output
-                            moved_result.append(item.to(target_device))
-                            logger.debug(f"Moved IMAGE tensor to {target_device}")
-                        else:
-                            moved_result.append(item)  # Don't move frame_count, audio, video_info
-                    else:
-                        moved_result.append(item)
-                result = tuple(moved_result) if isinstance(result, tuple) else moved_result
-            elif isinstance(result, torch.Tensor):
-                result = result.to(target_device)
-                logger.debug(f"Moved single output tensor to {target_device}")
-            
             logger.debug(f"Successfully executed {self.vhs_node_class.__name__} on {target_device}")
             return result
             
@@ -204,6 +195,7 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
             # ALWAYS restore original function, even on exception
             model_management.get_torch_device = original_get_device
             logger.debug("Restored original get_torch_device()")
+    
 
 logger.info("VHS_LoadVideoWrapper created successfully")
 
