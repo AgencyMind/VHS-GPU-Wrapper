@@ -86,24 +86,31 @@ VHS_VideoCombineWrapper = None
 
 # Hard-code VHS INPUT_TYPES based on verified source code to avoid import issues
 class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
+    _original_class = None  # Class-level cache
+    
     def __init__(self):
         # Initialize without calling super().__init__ since we find the VHS class at runtime
         self.vhs_node_class = None
     
     @classmethod
+    def _get_original_class(cls):
+        """Get original VHS class with caching"""
+        if cls._original_class is None:
+            import sys
+            modules_copy = dict(sys.modules)
+            
+            for module_name, module in modules_copy.items():
+                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                            cls._original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                            break
+        return cls._original_class
+    
+    @classmethod
     def INPUT_TYPES(cls):
         """Dynamically inherit INPUT_TYPES from original VHS node and add device parameter"""
-        # Find original VHS node
-        original_class = None
-        import sys
-        modules_copy = dict(sys.modules)
-        
-        for module_name, module in modules_copy.items():
-            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
-                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
-                        original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
-                        break
+        original_class = cls._get_original_class()
         
         if original_class and hasattr(original_class, 'INPUT_TYPES'):
             # Get original INPUT_TYPES dynamically
@@ -150,25 +157,19 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
     @classmethod
     def get_original_attributes(cls):
         """Get original VHS node attributes for dynamic inheritance"""
-        import sys
-        modules_copy = dict(sys.modules)
+        original_class = cls._get_original_class()
         
-        for module_name, module in modules_copy.items():
-            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
-                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
-                        original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
-                        
-                        # Update class attributes dynamically
-                        if hasattr(original_class, 'RETURN_TYPES'):
-                            cls.RETURN_TYPES = original_class.RETURN_TYPES
-                        if hasattr(original_class, 'RETURN_NAMES'):
-                            cls.RETURN_NAMES = original_class.RETURN_NAMES
-                        if hasattr(original_class, 'CATEGORY'):
-                            # Keep our wrapper category but note original
-                            pass  # Keep "video/gpu_wrapper"
-                        
-                        return original_class
+        if original_class:
+            # Update class attributes dynamically
+            if hasattr(original_class, 'RETURN_TYPES'):
+                cls.RETURN_TYPES = original_class.RETURN_TYPES
+            if hasattr(original_class, 'RETURN_NAMES'):
+                cls.RETURN_NAMES = original_class.RETURN_NAMES
+            if hasattr(original_class, 'CATEGORY'):
+                # Keep our wrapper category but note original
+                pass  # Keep "video/gpu_wrapper"
+            
+            return original_class
         
         logger.warning("VHS_LoadVideo not found for attribute inheritance")
         return None
@@ -176,22 +177,13 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
     @classmethod
     def IS_CHANGED(cls, video, **kwargs):
         """Proxy IS_CHANGED to original VHS node for proper cache invalidation"""
-        # Find original VHS node if not cached
-        if not hasattr(cls, '_original_class'):
-            import sys
-            modules_copy = dict(sys.modules)
-            
-            for module_name, module in modules_copy.items():
-                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
-                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
-                            cls._original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
-                            break
+        original_class = cls._get_original_class()
         
-        if hasattr(cls, '_original_class') and hasattr(cls._original_class, 'IS_CHANGED'):
-            # Remove device parameter before calling original
-            original_kwargs = {k: v for k, v in kwargs.items() if k != 'device'}
-            return cls._original_class.IS_CHANGED(video, **original_kwargs)
+        if original_class and hasattr(original_class, 'IS_CHANGED'):
+            # Filter out wrapper-specific parameters before calling original
+            wrapper_params = {'device'}
+            original_kwargs = {k: v for k, v in kwargs.items() if k not in wrapper_params}
+            return original_class.IS_CHANGED(video, **original_kwargs)
         
         # Fallback if original doesn't have IS_CHANGED
         return float("NaN")
@@ -199,38 +191,21 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
     @classmethod
     def VALIDATE_INPUTS(cls, video, **kwargs):
         """Proxy VALIDATE_INPUTS to original VHS node for proper input validation"""
-        # Find original VHS node if not cached
-        if not hasattr(cls, '_original_class'):
-            import sys
-            modules_copy = dict(sys.modules)
-            
-            for module_name, module in modules_copy.items():
-                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
-                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
-                            cls._original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
-                            break
+        original_class = cls._get_original_class()
         
-        if hasattr(cls, '_original_class') and hasattr(cls._original_class, 'VALIDATE_INPUTS'):
-            # Remove device parameter before calling original
-            original_kwargs = {k: v for k, v in kwargs.items() if k != 'device'}
-            return cls._original_class.VALIDATE_INPUTS(video, **original_kwargs)
+        if original_class and hasattr(original_class, 'VALIDATE_INPUTS'):
+            # Filter out wrapper-specific parameters before calling original
+            wrapper_params = {'device'}
+            original_kwargs = {k: v for k, v in kwargs.items() if k not in wrapper_params}
+            return original_class.VALIDATE_INPUTS(video, **original_kwargs)
         
         # Fallback validation
         return True
     
     def execute(self, device="cuda:0", **kwargs):
-        # Find VHS node at runtime if not already found
+        # Use cached original class
         if self.vhs_node_class is None:
-            import sys
-            modules_copy = dict(sys.modules)
-            
-            for module_name, module in modules_copy.items():
-                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
-                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
-                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
-                            self.vhs_node_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
-                            break
+            self.vhs_node_class = self._get_original_class()
             
             if self.vhs_node_class is None:
                 raise RuntimeError("VHS_LoadVideo not found - ensure VideoHelperSuite is installed")
