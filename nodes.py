@@ -136,7 +136,13 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
         logger.warning("VHS_LoadVideo not found, using fallback INPUT_TYPES")
         return {
             "required": {
-                "video": ([], {"video_upload": True}),
+                "video": (["input", "input/"], {"video_upload": True}),
+                "force_rate": ("INT", {"default": 0, "min": 0, "max": 60, "step": 1}),
+                "custom_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8}),
+                "custom_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 8}),
+                "frame_load_cap": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "skip_first_frames": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "select_every_nth": ("INT", {"default": 1, "min": 1, "step": 1}),
                 "device": (devices, {"default": default_device}),
             },
             "optional": {
