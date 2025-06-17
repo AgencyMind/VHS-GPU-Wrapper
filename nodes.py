@@ -4,18 +4,7 @@ import logging
 import os
 import folder_paths
 
-# Define floatOrInt like VHS does
-class MultiInput(str):
-    def __new__(cls, string, allowed_types="*"):
-        res = super().__new__(cls, string)
-        res.allowed_types=allowed_types
-        return res
-    def __ne__(self, other):
-        if self.allowed_types == "*" or other == "*":
-            return False
-        return other not in self.allowed_types
-
-floatOrInt = MultiInput("FLOAT", ["FLOAT", "INT"])
+# Note: floatOrInt and other VHS types are now inherited dynamically from original VHS
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -103,29 +92,44 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
     
     @classmethod
     def INPUT_TYPES(cls):
+        """Dynamically inherit INPUT_TYPES from original VHS node and add device parameter"""
+        # Find original VHS node
+        original_class = None
+        import sys
+        modules_copy = dict(sys.modules)
+        
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                        original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                        break
+        
+        if original_class and hasattr(original_class, 'INPUT_TYPES'):
+            # Get original INPUT_TYPES dynamically
+            original_inputs = original_class.INPUT_TYPES()
+            
+            # Add device parameter to required section
+            devices = get_device_list()
+            default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
+            
+            # Ensure required section exists
+            if "required" not in original_inputs:
+                original_inputs["required"] = {}
+                
+            # Add device parameter at the end of required section
+            original_inputs["required"]["device"] = (devices, {"default": default_device})
+            
+            return original_inputs
+        
+        # Fallback to static definition if original not found
         devices = get_device_list()
         default_device = "cuda:0" if "cuda:0" in devices else (devices[1] if len(devices) > 1 else devices[0])
         
-        # Get video files from input directory like original VHS
-        input_dir = folder_paths.get_input_directory()
-        files = []
-        if os.path.exists(input_dir):
-            for f in os.listdir(input_dir):
-                if os.path.isfile(os.path.join(input_dir, f)):
-                    file_parts = f.split('.')
-                    if len(file_parts) > 1 and (file_parts[-1].lower() in ['webm', 'mp4', 'mkv', 'gif', 'mov']):
-                        files.append(f)
-        
+        logger.warning("VHS_LoadVideo not found, using fallback INPUT_TYPES")
         return {
             "required": {
-                "video": (sorted(files), {"video_upload": True}),
-                "force_rate": (floatOrInt, {"default": 0, "min": 0, "max": 60, "step": 1, "disable": 0}),
-                "custom_width": ("INT", {"default": 0, "min": 0, "max": 8192, 'disable': 0}),
-                "custom_height": ("INT", {"default": 0, "min": 0, "max": 8192, 'disable': 0}),
-                "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": 999999, "step": 1, "disable": 0}),
-                "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": 999999, "step": 1}),
-                "select_every_nth": ("INT", {"default": 1, "min": 1, "max": 999999, "step": 1}),
-                "format": (["None", "AnimateDiff", "Mochi", "LTXV", "Hunyuan", "Cosmos", "Wan"], {"default": "AnimateDiff"}),
+                "video": ([], {"video_upload": True}),
                 "device": (devices, {"default": default_device}),
             },
             "optional": {
@@ -133,15 +137,87 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
                 "vae": ("VAE",),
             },
             "hidden": {
-                "force_size": "STRING",
                 "unique_id": "UNIQUE_ID"
             }
         }
         
-    RETURN_TYPES = ("IMAGE", "INT", "AUDIO", "VHS_VIDEOINFO")
-    RETURN_NAMES = ("IMAGE", "frame_count", "audio", "video_info")
+    # These will be dynamically set from original VHS node, with fallbacks
+    RETURN_TYPES = ("IMAGE", "INT", "AUDIO", "VHS_VIDEOINFO")  # Fallback
+    RETURN_NAMES = ("IMAGE", "frame_count", "audio", "video_info")  # Fallback  
     FUNCTION = "execute"
     CATEGORY = "video/gpu_wrapper"
+    
+    @classmethod
+    def get_original_attributes(cls):
+        """Get original VHS node attributes for dynamic inheritance"""
+        import sys
+        modules_copy = dict(sys.modules)
+        
+        for module_name, module in modules_copy.items():
+            if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                    if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                        original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                        
+                        # Update class attributes dynamically
+                        if hasattr(original_class, 'RETURN_TYPES'):
+                            cls.RETURN_TYPES = original_class.RETURN_TYPES
+                        if hasattr(original_class, 'RETURN_NAMES'):
+                            cls.RETURN_NAMES = original_class.RETURN_NAMES
+                        if hasattr(original_class, 'CATEGORY'):
+                            # Keep our wrapper category but note original
+                            pass  # Keep "video/gpu_wrapper"
+                        
+                        return original_class
+        
+        logger.warning("VHS_LoadVideo not found for attribute inheritance")
+        return None
+    
+    @classmethod
+    def IS_CHANGED(cls, video, **kwargs):
+        """Proxy IS_CHANGED to original VHS node for proper cache invalidation"""
+        # Find original VHS node if not cached
+        if not hasattr(cls, '_original_class'):
+            import sys
+            modules_copy = dict(sys.modules)
+            
+            for module_name, module in modules_copy.items():
+                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                            cls._original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                            break
+        
+        if hasattr(cls, '_original_class') and hasattr(cls._original_class, 'IS_CHANGED'):
+            # Remove device parameter before calling original
+            original_kwargs = {k: v for k, v in kwargs.items() if k != 'device'}
+            return cls._original_class.IS_CHANGED(video, **original_kwargs)
+        
+        # Fallback if original doesn't have IS_CHANGED
+        return float("NaN")
+    
+    @classmethod
+    def VALIDATE_INPUTS(cls, video, **kwargs):
+        """Proxy VALIDATE_INPUTS to original VHS node for proper input validation"""
+        # Find original VHS node if not cached
+        if not hasattr(cls, '_original_class'):
+            import sys
+            modules_copy = dict(sys.modules)
+            
+            for module_name, module in modules_copy.items():
+                if hasattr(module, 'NODE_CLASS_MAPPINGS') and module.NODE_CLASS_MAPPINGS:
+                    if isinstance(module.NODE_CLASS_MAPPINGS, dict):
+                        if "VHS_LoadVideo" in module.NODE_CLASS_MAPPINGS:
+                            cls._original_class = module.NODE_CLASS_MAPPINGS["VHS_LoadVideo"]
+                            break
+        
+        if hasattr(cls, '_original_class') and hasattr(cls._original_class, 'VALIDATE_INPUTS'):
+            # Remove device parameter before calling original
+            original_kwargs = {k: v for k, v in kwargs.items() if k != 'device'}
+            return cls._original_class.VALIDATE_INPUTS(video, **original_kwargs)
+        
+        # Fallback validation
+        return True
     
     def execute(self, device="cuda:0", **kwargs):
         # Find VHS node at runtime if not already found
@@ -196,6 +272,9 @@ class VHS_LoadVideoWrapper(VHSMultiGPUWrapper):
             model_management.get_torch_device = original_get_device
             logger.debug("Restored original get_torch_device()")
     
+
+# Initialize dynamic attributes from original VHS node
+VHS_LoadVideoWrapper.get_original_attributes()
 
 logger.info("VHS_LoadVideoWrapper created successfully")
 
