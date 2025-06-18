@@ -2,6 +2,7 @@
 .claude/
 .claude/*
 CLAUDE.md
+CONTEXT.md
 
 # Python
 __pycache__/
