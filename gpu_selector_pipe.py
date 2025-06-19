@@ -72,12 +72,38 @@ class GPUSelectorAny:
             
         return (moved_data,)
 
+class GPUSelectorMask:
+    @classmethod
+    def INPUT_TYPES(s):
+        devices = ["cpu", "cuda:0"]
+        if torch.cuda.device_count() > 1:
+            for i in range(1, torch.cuda.device_count()):
+                devices.append(f"cuda:{i}")
+        
+        return {
+            "required": {
+                "mask": ("MASK",),
+                "device": (devices,),
+            }
+        }
+    
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "move_to_device"
+    CATEGORY = "Video Helper Suite 🎥🅥🅗🅢/device"
+    
+    def move_to_device(self, mask, device):
+        # Move tensor to specified device
+        moved_mask = mask.to(device)
+        return (moved_mask,)
+
 NODE_CLASS_MAPPINGS = {
     "VHS_GPUSelectorPipe": GPUSelectorPipe,
     "VHS_GPUSelectorAny": GPUSelectorAny,
+    "VHS_GPUSelectorMask": GPUSelectorMask,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VHS_GPUSelectorPipe": "GPU Selector Pipe 🎥🅥🅗🅢",
     "VHS_GPUSelectorAny": "GPU Selector (Any) 🎥🅥🅗🅢",
+    "VHS_GPUSelectorMask": "GPU Selector (Mask) 🎥🅥🅗🅢",
 }
